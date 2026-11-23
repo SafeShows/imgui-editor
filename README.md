@@ -2,6 +2,8 @@
 
 Design Dear ImGui windows in the browser and get the code for them, mainly for **Kitten Space Agency** mods:
 
+![The editor: widget palette and hierarchy on the left, the live Dear ImGui preview in the middle, properties and generated C# on the right](docs/screenshot.jpg)
+
 | Target | What you get |
 | --- | --- |
 | C# (StarMap + BRUTAL) | A `[StarMapMod]` class drawing with `Brutal.ImGuiApi.ImGui` in `[StarMapAfterGui]`, plus a Harmony postfix on `KSA.Program.DrawProgramMenusHook` that adds show/hide entries to the Mods menu. |
