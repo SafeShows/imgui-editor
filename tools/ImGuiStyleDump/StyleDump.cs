@@ -41,7 +41,25 @@ public sealed class StyleDump
                 var c = ImGui.GetStyleColorVec4(cols[i]);
                 sb.Append($"    \"{cols[i]}\": [{F(c.X)}, {F(c.Y)}, {F(c.Z)}, {F(c.W)}]{(i < cols.Count - 1 ? "," : "")}\n");
             }
-            sb.Append($"  }},\n  \"fontSize\": {F(ImGui.GetFontSize())},\n  \"version\": \"{ImGui.GetVersion()}\"\n}}\n");
+            sb.Append("  },\n");
+            // KSA's own UI kit: the theme values its ConsoleStyle windows and ConsoleWidgets controls draw with
+            // (colors are ImGui packed ABGR, written as [r, g, b, a] 0..1).
+            KSA.ConsoleStyle.EnsureInitialized();
+            foreach (var type in new[] { typeof(KSA.ConsoleStyle), typeof(KSA.ConsoleWidgets) })
+            {
+                var props = new List<string>();
+                foreach (var p in type.GetProperties(BindingFlags.Public | BindingFlags.Static))
+                {
+                    object? v;
+                    try { v = p.GetValue(null); } catch { continue; } // some only make sense inside a row or window
+                    if (v is uint u)
+                        props.Add($"    \"{p.Name}\": [{F((u & 0xFF) / 255f)}, {F(((u >> 8) & 0xFF) / 255f)}, {F(((u >> 16) & 0xFF) / 255f)}, {F((u >> 24) / 255f)}]");
+                    else if (v is float or bool || v?.GetType().Name == "float2")
+                        props.Add($"    \"{p.Name}\": {V(v!)}");
+                }
+                sb.Append($"  \"{type.Name}\": {{\n{string.Join(",\n", props)}\n  }},\n");
+            }
+            sb.Append($"  \"fontSize\": {F(ImGui.GetFontSize())},\n  \"version\": \"{ImGui.GetVersion()}\"\n}}\n");
             var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "My Games", "Kitten Space Agency", "imgui_style.json");
             File.WriteAllText(path, sb.ToString());
             Console.WriteLine($"[ImGuiStyleDump] wrote {path}");
