@@ -8,7 +8,8 @@ export type Kind =
   | 'slider_float' | 'slider_int' | 'drag_float' | 'drag_int'
   | 'input_text' | 'input_multiline' | 'input_double' | 'input_int'
   | 'combo' | 'list_box' | 'color_edit' | 'progress' | 'selectable'
-  | 'plot_lines' | 'plot_histogram' | 'separator' | 'spacing';
+  | 'plot_lines' | 'plot_histogram' | 'separator' | 'spacing'
+  | 'readout' | 'region_header' | 'segmented';
 
 export type Props = Record<string, any>;
 
@@ -26,17 +27,20 @@ export interface Node {
 
 export interface Project {
   windows: Node[];
+  /** KSA look: the KSA targets (C#, Rust, Rhai) use the game's UI kit (ConsoleStyle, ConsoleWidgets). */
+  ksa?: boolean;
 }
 
-export type PropType = 'string' | 'text' | 'number' | 'int' | 'bool' | 'color' | 'list' | 'numbers';
-export interface PropDef { key: string; label: string; type: PropType }
+export type PropType = 'string' | 'text' | 'number' | 'int' | 'bool' | 'color' | 'list' | 'numbers' | 'select';
+export interface PropDef { key: string; label: string; type: PropType; options?: string[]; ksa?: boolean }
 
 /** The kind of state a widget keeps between frames (its variable's type). */
-export type State = 'bool' | 'int' | 'float' | 'double' | 'string' | 'color';
+/** `text` is a multi-line box's text: always ImGui's own buffer, even in the KSA look. */
+export type State = 'bool' | 'int' | 'float' | 'double' | 'string' | 'text' | 'color';
 
 export interface KindDef {
   label: string;
-  group: 'Containers' | 'Text' | 'Input' | 'Display';
+  group: 'Containers' | 'Text' | 'Input' | 'Display' | 'KSA';
   container?: boolean;
   /** Children are absolutely placed (window, child) rather than flowing. */
   absolute?: boolean;
@@ -61,9 +65,11 @@ const items: PropDef = { key: 'items', label: 'Items (comma separated)', type: '
 export const KINDS: Record<Kind, KindDef> = {
   window: {
     label: 'Window', group: 'Containers', container: true, absolute: true, w: 360, h: 260,
-    defaults: { title: 'My window', no_title: false, no_resize: false, no_move: false, no_collapse: false, auto_resize: false, closable: false },
+    defaults: { title: 'My window', signature: 'MOD', footer: '', no_title: false, no_resize: false, no_move: false, no_collapse: false, auto_resize: false, closable: false },
     props: [
       { key: 'title', label: 'Title', type: 'string' },
+      { key: 'signature', label: 'Signature tag', type: 'string', ksa: true },
+      { key: 'footer', label: 'Footer status', type: 'string', ksa: true },
       { key: 'no_title', label: 'No title bar', type: 'bool' },
       { key: 'no_resize', label: 'No resize', type: 'bool' },
       { key: 'no_move', label: 'No move', type: 'bool' },
@@ -102,7 +108,7 @@ export const KINDS: Record<Kind, KindDef> = {
   separator: { label: 'Separator', group: 'Text', defaults: {}, props: [] },
   spacing: { label: 'Spacing', group: 'Text', defaults: {}, props: [] },
 
-  button: { label: 'Button', group: 'Input', defaults: { label: 'Button' }, props: [label, tip] },
+  button: { label: 'Button', group: 'Input', defaults: { label: 'Button', variant: 'normal' }, props: [label, { key: 'variant', label: 'KSA style', type: 'select', options: ['normal', 'primary', 'positive', 'danger'], ksa: true }, tip] },
   checkbox: { label: 'Checkbox', group: 'Input', state: 'bool', defaults: { label: 'Enabled', value: true }, props: [label, v('bool'), tip] },
   radio: {
     label: 'Radio button', group: 'Input', defaults: { label: 'Option A', group: 'mode', option: 0, value: 0 },
@@ -113,7 +119,7 @@ export const KINDS: Record<Kind, KindDef> = {
   drag_float: { label: 'Drag (float)', group: 'Input', state: 'float', width: true, defaults: { label: 'Offset', value: 0, speed: 0.1, min: 0, max: 0 }, props: [label, v('number'), { key: 'speed', label: 'Speed', type: 'number' }, { key: 'min', label: 'Min (= max: none)', type: 'number' }, { key: 'max', label: 'Max', type: 'number' }, tip] },
   drag_int: { label: 'Drag (int)', group: 'Input', state: 'int', width: true, defaults: { label: 'Count', value: 0, speed: 1, min: 0, max: 0 }, props: [label, v('int'), { key: 'speed', label: 'Speed', type: 'number' }, { key: 'min', label: 'Min (= max: none)', type: 'int' }, { key: 'max', label: 'Max', type: 'int' }, tip] },
   input_text: { label: 'Text field', group: 'Input', state: 'string', width: true, defaults: { label: 'Name', value: '' }, props: [label, v('string'), tip] },
-  input_multiline: { label: 'Text box', group: 'Input', state: 'string', w: 240, h: 80, defaults: { label: '##notes', value: '' }, props: [label, v('text'), tip] },
+  input_multiline: { label: 'Text box', group: 'Input', state: 'text', w: 240, h: 80, defaults: { label: '##notes', value: '' }, props: [label, v('text'), tip] },
   input_double: { label: 'Number field', group: 'Input', state: 'double', width: true, defaults: { label: 'Altitude', value: 0 }, props: [label, v('number'), tip] },
   input_int: { label: 'Int field', group: 'Input', state: 'int', width: true, defaults: { label: 'Count', value: 0 }, props: [label, v('int'), tip] },
   combo: { label: 'Combo', group: 'Input', state: 'int', width: true, defaults: { label: 'Mode', items: 'Prograde,Retrograde,Normal', value: 0 }, props: [label, items, { key: 'value', label: 'Initial index', type: 'int' }, tip] },
@@ -124,6 +130,10 @@ export const KINDS: Record<Kind, KindDef> = {
   progress: { label: 'Progress bar', group: 'Display', defaults: { fraction: 0.4, overlay: '' }, props: [{ key: 'fraction', label: 'Fraction', type: 'number' }, { key: 'overlay', label: 'Overlay text', type: 'string' }, tip] },
   plot_lines: { label: 'Plot (lines)', group: 'Display', h: 60, defaults: { label: '##plot', values: '0,1,3,2,5,4,6' }, props: [label, { key: 'values', label: 'Values (comma separated)', type: 'numbers' }, tip] },
   plot_histogram: { label: 'Plot (bars)', group: 'Display', h: 60, defaults: { label: '##hist', values: '1,3,2,5,4' }, props: [label, { key: 'values', label: 'Values (comma separated)', type: 'numbers' }, tip] },
+
+  readout: { label: 'Readout', group: 'KSA', defaults: { key: 'Apoapsis', value: '182.4 km' }, props: [{ key: 'key', label: 'Key', type: 'string' }, { key: 'value', label: 'Value', type: 'string' }, tip] },
+  region_header: { label: 'Region header', group: 'KSA', defaults: { label: 'Orbit' }, props: [label] },
+  segmented: { label: 'Segmented', group: 'KSA', state: 'int', defaults: { label: 'Frame', items: 'Surface,Orbit,Target', value: 0 }, props: [{ key: 'label', label: 'Name (for the variable)', type: 'string' }, items, { key: 'value', label: 'Initial index', type: 'int' }, tip] },
 };
 
 /** Plain layout props every node has, shown in the inspector. */

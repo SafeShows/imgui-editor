@@ -79,7 +79,9 @@ const snapTo = (v: number) => {
 const canvas = $('canvas') as HTMLCanvasElement;
 const overlay = $('overlay');
 const status = $('status');
-const preview = new Preview(canvas, () => ({ project: doc.project, design }));
+const isKsaTarget = () => doc.target === 'csharp' || doc.target === 'rust' || doc.target === 'rhai';
+const ksaLook = () => !!doc.project.ksa && isKsaTarget();
+const preview = new Preview(canvas, () => ({ project: doc.project, design, ksa: ksaLook() }));
 
 (async () => {
   let font: Uint8Array | undefined;
@@ -367,6 +369,7 @@ function renderProps() {
         input = el('input', { type: 'color', value: hex, ...edit(v => { const h = String(v); n.p[def.key] = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).concat([c[3] ?? 1]); }, resetState) });
         break;
       }
+      case 'select': input = el('select', { ...edit(v => (n.p[def.key] = v), resetState) }, ...(def.options ?? []).map(o => el('option', { value: o, selected: o === (val ?? def.options?.[0]) }, o))); break;
       default: input = el('input', { value: val ?? '', spellcheck: false, ...edit(v => (n.p[def.key] = v), resetState) });
     }
     return el('label', { className: 'row' }, def.label, input);
@@ -378,7 +381,7 @@ function renderProps() {
   const geo = [...(abs ? [num('x', 'X'), num('y', 'Y')] : []), ...(sized || d.width ? [num('w', d.width && !sized ? 'Width (0 auto)' : 'Width')] : []), ...(sized ? [num('h', 'Height')] : [])];
   if (geo.length) rows.push(el('div', { className: 'xy' }, ...geo));
   if (!abs && f.parent?.kind !== 'table' && f.parent?.kind !== 'tab_bar') rows.push(field({ key: 'same_line', label: 'Same line', type: 'bool' }));
-  for (const def of d.props) rows.push(field(def));
+  for (const def of d.props) if (!def.ksa || ksaLook()) rows.push(field(def));
   const v = assignVars(doc.project).byNode.get(n.id);
   if (v && n.kind !== 'radio') rows.push(el('label', { className: 'row' }, 'Variable', el('input', { value: n.p.var ?? '', placeholder: v.name, spellcheck: false, ...edit(x => (n.p.var = x)) })));
   if (n.kind === 'window' && n.p.auto_resize) rows.push(el('p', { className: 'hint' }, 'Auto resize ignores the size.'));
@@ -429,11 +432,15 @@ function renderCode() {
   targetSel.value = doc.target;
   modName.value = doc.name;
   code.textContent = generate(doc.project, doc.target, { name: doc.name });
-  const game = doc.target !== 'c' && doc.target !== 'cpp';
+  const game = isKsaTarget();
   preview.setTheme(game ? 'ksa' : 'default');
-  $('code-note').textContent = `${NOTES[doc.target]} Preview: ${game ? (KSA_CAPTURED ? 'KSA style' : 'KSA font (game colors not captured yet)') : 'default Dear ImGui style'}.`;
+  const ksaBox = $('ksa') as HTMLInputElement;
+  ksaBox.checked = !!doc.project.ksa;
+  ksaBox.disabled = !game;
+  $('code-note').textContent = `${NOTES[doc.target]} Preview: ${!game ? 'default Dear ImGui style' : ksaLook() ? "KSA's UI kit (approximated)" : KSA_CAPTURED ? 'KSA font, plain ImGui widgets' : 'KSA font (game style not captured yet)'}.`;
 }
-targetSel.addEventListener('change', () => { doc.target = targetSel.value as Target; save(); renderCode(); });
+targetSel.addEventListener('change', () => { doc.target = targetSel.value as Target; save(); renderCode(); renderProps(); });
+$('ksa').addEventListener('change', e => change(() => { doc.project.ksa = (e.target as HTMLInputElement).checked; }));
 modName.addEventListener('input', () => { doc.name = modName.value; save(); code.textContent = generate(doc.project, doc.target, { name: doc.name }); });
 $('copy').addEventListener('click', async () => {
   try {

@@ -11,7 +11,7 @@ const flow = (kind: Kind, p: Record<string, any> = {}, children?: Node[]) => at(
 
 /** A design using every widget: the editor's first document, and what the tests generate. */
 export function sample(): Project {
-  const flight = at('window', 40, 40, { title: 'Flight panel', closable: true }, [
+  const flight = at('window', 40, 40, { title: 'Flight panel', closable: true, signature: 'FLT', footer: 'Ready' }, [
     at('text_colored', 8, 30, { text: 'ORBIT', color: [0.4, 0.8, 1, 1] }),
     at('checkbox', 8, 52, { label: 'Warp guard', value: true, tooltip: 'Stops warping below 70 km' }),
     at('slider_float', 8, 78, { label: 'Throttle', value: 0.5 }, undefined, [200, 0]),
@@ -19,9 +19,12 @@ export function sample(): Project {
     at('radio', 8, 132, { label: 'Surface', group: 'frame', option: 0 }),
     at('radio', 100, 132, { label: 'Orbit', group: 'frame', option: 1 }),
     at('progress', 8, 158, { fraction: 0.62, overlay: 'Fuel 62%' }),
-    at('button', 8, 186, { label: 'Stage' }),
+    at('button', 8, 186, { label: 'Stage', variant: 'positive' }),
     at('popup', 70, 186, { label: 'More...', id: 'more' }, [flow('selectable', { label: 'Show orbit' }), flow('selectable', { label: 'Show vehicle', value: true })]),
-  ], [340, 250]);
+    at('region_header', 8, 262, { label: 'Status' }),
+    at('readout', 8, 296, { key: 'Apoapsis', value: '182.4 km' }),
+    at('segmented', 8, 326, { label: 'Frame view', items: 'Surface,Orbit,Target' }),
+  ], [360, 420]);
 
   const tools = at('window', 400, 40, { title: 'Tools', no_collapse: true }, [
     at('tab_bar', 8, 30, { id: 'tools' }, [

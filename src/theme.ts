@@ -54,3 +54,9 @@ export function setTheme(t: Theme) {
   apply(defaults);
   if (t === 'ksa') apply(ksa as StyleDump);
 }
+
+/** KSA's UI kit theme values (ConsoleStyle colors as [r, g, b, a], sizes in px), for drawing the KSA look. */
+export const KIT: { style: Record<string, any>; widgets: Record<string, any> } = {
+  style: (ksa as any).ConsoleStyle ?? {},
+  widgets: (ksa as any).ConsoleWidgets ?? {},
+};

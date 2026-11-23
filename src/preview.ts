@@ -1,7 +1,7 @@
 // Draws the design with real Dear ImGui (jsimgui: ImGui compiled to WebAssembly) and records where every node
 // landed on screen, so the editor's overlay can select and drag them.
-import { ImGui, ImGuiImplWeb, ImVec2, ImVec4 } from '@mori2003/jsimgui';
-import { FONT_SIZE, setTheme, type Theme } from './theme.ts';
+import { ImGui, ImGuiCol, ImGuiImplWeb, ImGuiStyleVar, ImVec2, ImVec4 } from '@mori2003/jsimgui';
+import { FONT_SIZE, KIT, setTheme, type Theme } from './theme.ts';
 import { KINDS, isAbsolute, list, numbers, type Node, type Project } from './model.ts';
 
 export interface Rect { x0: number; y0: number; x1: number; y1: number }
@@ -13,6 +13,14 @@ export interface Placed {
 
 const WF = { no_title: 1, no_resize: 2, no_move: 4, no_collapse: 32, auto_resize: 64 } as const;
 const COND_ALWAYS = 1, COND_FIRST = 4;
+const FILL = -1.17549435e-38; // -FLT_MIN: fill the rest of the row
+/** Widgets the KSA look draws as a labelled row (ConsoleWidgets.BeginRow). */
+const ROW_KINDS = new Set(['checkbox', 'slider_float', 'slider_int', 'drag_float', 'drag_int', 'combo', 'input_text', 'color_edit']);
+
+const S = KIT.style, W = KIT.widgets;
+const kv4 = (c: number[] | undefined, fallback: number[] = [1, 1, 1, 1]) => { const x = c ?? fallback; return new ImVec4(x[0], x[1], x[2], x[3]); };
+const ku32 = (c: number[] | undefined, fallback?: number[]) => ImGui.ColorConvertFloat4ToU32(kv4(c, fallback));
+const px = (v: unknown, d: number) => (typeof v === 'number' ? v : d);
 
 export class Preview {
   placed: Placed = { rects: new Map(), origins: new Map() };
@@ -29,8 +37,10 @@ export class Preview {
   }
 
   private canvas: HTMLCanvasElement;
-  private get: () => { project: Project; design: boolean };
-  constructor(canvas: HTMLCanvasElement, get: () => { project: Project; design: boolean }) {
+  private get: () => { project: Project; design: boolean; ksa: boolean };
+  /** Drawing KSA's UI kit this frame (the design's KSA look, with a KSA target). */
+  private ksa = false;
+  constructor(canvas: HTMLCanvasElement, get: () => { project: Project; design: boolean; ksa: boolean }) {
     this.canvas = canvas;
     this.get = get;
   }
@@ -85,9 +95,10 @@ export class Preview {
   }
 
   private draw() {
-    const { project, design } = this.get();
+    const { project, design, ksa } = this.get();
     const placed: Placed = { rects: new Map(), origins: new Map() };
     this.placed = placed;
+    this.ksa = ksa;
     for (const w of project.windows) {
       const cond = design ? COND_ALWAYS : COND_FIRST;
       ImGui.SetNextWindowPos(new ImVec2(w.x, w.y), cond);
@@ -97,6 +108,11 @@ export class Preview {
       // In design mode the overlay moves windows; in test mode they behave as in the game.
       if (design) flags |= 4 | 2; // NoMove | NoResize
       ImGui.PushID(w.id);
+      if (ksa) {
+        this.ksaWindow(w, flags);
+        ImGui.PopID();
+        continue;
+      }
       const open = ImGui.Begin(`${w.p.title || 'Window'}###${w.id}`, w.p.closable ? [true] : null, flags);
       const pos = ImGui.GetWindowPos(), size = ImGui.GetWindowSize();
       placed.origins.set(w.id, { x: pos.x, y: pos.y });
@@ -139,10 +155,184 @@ export class Preview {
     this.stack[this.stack.length - 1]?.push({ x0: a.x, y0: a.y, x1: b.x, y1: b.y });
   }
 
+  /** A ConsoleStyle window: title bar (title, signature, close), a scrolling body and a footer. */
+  private ksaWindow(w: Node, flags: number) {
+    const tb = px(S.TitlebarHeight, 42), fh = px(S.FooterHeight, 50), pad = px(S.TitlebarHorizontalPaddingPx, 10);
+    ImGui.PushStyleColorImVec4(ImGuiCol.WindowBg, kv4(S.PanelU32, [0.07, 0.075, 0.08, 1]));
+    ImGui.PushStyleColorImVec4(ImGuiCol.Border, kv4(S.HairlineU32, [0.25, 0.27, 0.29, 1]));
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, px(S.WindowRoundingPx, 8));
+    ImGui.PushStyleVarX(ImGuiStyleVar.WindowPadding, 0);
+    ImGui.PushStyleVarY(ImGuiStyleVar.WindowPadding, 0);
+    const open = ImGui.Begin(`${w.p.title || 'Window'}###${w.id}`, null, flags | 1 | 8 | 16 | 32); // no title bar, scrollbar, scrolling, collapse
+    ImGui.PopStyleVar(3);
+    ImGui.PopStyleColor(2);
+    const pos = ImGui.GetWindowPos(), size = ImGui.GetWindowSize();
+    this.placed.rects.set(w.id, { x0: pos.x, y0: pos.y, x1: pos.x + size.x, y1: pos.y + size.y });
+    const dl = ImGui.GetWindowDrawList();
+    const round = px(S.WindowRoundingPx, 8);
+    // Title bar.
+    dl.AddRectFilled(new ImVec2(pos.x, pos.y), new ImVec2(pos.x + size.x, pos.y + tb), ku32(S.PanelRaisedU32, [0.12, 0.125, 0.137, 1]), round, 48);
+    dl.AddLine(new ImVec2(pos.x + 1, pos.y + 1), new ImVec2(pos.x + size.x - 1, pos.y + 1), ku32(S.TopHighlightU32, [1, 1, 1, 0.07]));
+    dl.AddLine(new ImVec2(pos.x, pos.y + tb), new ImVec2(pos.x + size.x, pos.y + tb), ku32(S.HairlineU32));
+    const fs = ImGui.GetFontSize();
+    // Text through the window (jsimgui's AddText draws nothing without a text end).
+    const label = (x: number, y: number, c: number[] | undefined, t: string) => {
+      ImGui.SetCursorScreenPos(new ImVec2(x, y));
+      ImGui.TextColored(kv4(c), t);
+    };
+    label(pos.x + pad, pos.y + (tb - fs) / 2, S.TextPrimaryU32, String(w.p.title ?? ''));
+    let right = pos.x + size.x - pad;
+    if (w.p.closable) {
+      const cb = px(S.CloseButtonSizePx, 18), cx = right - cb / 2, cy = pos.y + tb / 2, k = cb * 0.28;
+      dl.AddLine(new ImVec2(cx - k, cy - k), new ImVec2(cx + k, cy + k), ku32(S.TextMutedU32), 1.5);
+      dl.AddLine(new ImVec2(cx - k, cy + k), new ImVec2(cx + k, cy - k), ku32(S.TextMutedU32), 1.5);
+      right -= cb + px(S.TitlebarSignatureGapPx, 10);
+    }
+    const sig = String(w.p.signature ?? '');
+    // jsimgui's CalcTextSize has the same problem; KSA's font is monospaced (0.6 em per character).
+    if (sig) label(right - sig.length * fs * 0.6, pos.y + (tb - fs) / 2, S.TextMutedU32, sig);
+    // Footer.
+    dl.AddRectFilled(new ImVec2(pos.x, pos.y + size.y - fh), new ImVec2(pos.x + size.x, pos.y + size.y), ku32(S.PanelRaisedU32), round, 192);
+    dl.AddLine(new ImVec2(pos.x, pos.y + size.y - fh), new ImVec2(pos.x + size.x, pos.y + size.y - fh), ku32(S.HairlineU32));
+    if (w.p.footer) label(pos.x + px(S.FooterHorizontalPaddingPx, 10), pos.y + size.y - (fh + fs) / 2, S.TextMutedU32, String(w.p.footer));
+    if (open) {
+      // Body: SetCursorPos in the generated code is relative to it.
+      ImGui.SetCursorPos(new ImVec2(0, tb));
+      const cp = px(S.ContentPaddingPx, 8);
+      ImGui.PushStyleVarX(ImGuiStyleVar.WindowPadding, cp);
+      ImGui.PushStyleVarY(ImGuiStyleVar.WindowPadding, cp);
+      const body = ImGui.BeginChild('##body', new ImVec2(size.x, Math.max(1, size.y - tb - fh)), 0, 0);
+      ImGui.PopStyleVar(2);
+      const o = ImGui.GetWindowPos();
+      this.placed.origins.set(w.id, { x: o.x, y: o.y });
+      if (body) {
+        const n = this.pushWidgetStyle();
+        this.children(w);
+        ImGui.PopStyleVar(2);
+        ImGui.PopStyleColor(n);
+      }
+      ImGui.EndChild();
+    }
+    ImGui.End();
+  }
+
+  /** What ConsoleStyle.PushWidgetStyle looks like (approximated from its theme values): returns colors pushed. */
+  private pushWidgetStyle(): number {
+    const cols: [number, number[] | undefined][] = [
+      [ImGuiCol.Text, S.TextPrimaryU32], [ImGuiCol.TextDisabled, S.TextMutedU32],
+      [ImGuiCol.FrameBg, S.InsetU32], [ImGuiCol.FrameBgHovered, S.PanelRaisedU32], [ImGuiCol.FrameBgActive, S.FrameU32],
+      [ImGuiCol.Button, S.PanelRaisedU32], [ImGuiCol.ButtonHovered, S.FrameU32], [ImGuiCol.ButtonActive, S.HairlineU32],
+      [ImGuiCol.Header, S.PanelRaisedU32], [ImGuiCol.HeaderHovered, S.FrameU32], [ImGuiCol.HeaderActive, S.HairlineU32],
+      [ImGuiCol.CheckMark, S.TextPrimaryU32], [ImGuiCol.SliderGrab, S.ActiveToolU32], [ImGuiCol.SliderGrabActive, S.TextPrimaryU32],
+      [ImGuiCol.Border, S.HairlineU32], [ImGuiCol.Separator, S.HairlineU32], [ImGuiCol.PopupBg, S.PanelRaisedU32],
+      [ImGuiCol.Tab, S.PanelRaisedU32], [ImGuiCol.TabSelected, S.FrameU32], [ImGuiCol.TabHovered, S.FrameU32],
+      [ImGuiCol.PlotHistogram, S.ActiveToolU32], [ImGuiCol.TableHeaderBg, S.PanelRaisedU32],
+    ];
+    let n = 0;
+    for (const [i, c] of cols) if (c) { ImGui.PushStyleColorImVec4(i, kv4(c)); n++; }
+    ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, px(S.FrameRoundingPx, 4));
+    ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 1);
+    return n;
+  }
+
+  /** The KSA kit's version of a widget; false when it has none (drawn as plain ImGui in the widget style). */
+  private ksaNode(n: Node): boolean {
+    const p = n.p;
+    const labelColumn = () => Math.max(96, ImGui.GetContentRegionAvail().x * 0.42);
+    const rule = () => {
+      const c = ImGui.GetCursorScreenPos(), wdt = ImGui.GetContentRegionAvail().x, h = px(W.RuleHeightPx, 8);
+      ImGui.Dummy(new ImVec2(wdt, h));
+      ImGui.GetWindowDrawList().AddLine(new ImVec2(c.x, c.y + h / 2), new ImVec2(c.x + wdt, c.y + h / 2), ku32(S.HairlineU32));
+    };
+    if (ROW_KINDS.has(n.kind)) {
+      const x0 = ImGui.GetCursorPosX(), col = labelColumn();
+      ImGui.BeginGroup();
+      ImGui.AlignTextToFramePadding();
+      ImGui.TextColored(kv4(S.TextLabelU32), String(p.label ?? '').split('##')[0]);
+      ImGui.SameLine(x0 + col);
+      ImGui.SetNextItemWidth(FILL);
+      this.plain({ ...n, p: { ...p, label: `##${n.id}` } });
+      ImGui.EndGroup();
+      this.item();
+      if (p.tooltip) ImGui.SetItemTooltip(p.tooltip);
+      return true;
+    }
+    switch (n.kind) {
+      case 'button': {
+        const v = p.variant ?? 'normal';
+        const tint: Record<string, number[] | undefined> = { positive: S.PositiveU32, danger: S.DangerU32 };
+        let pushed = 0;
+        if (v === 'primary') {
+          ImGui.PushStyleColorImVec4(ImGuiCol.Button, kv4(S.ActiveToolU32)); ImGui.PushStyleColorImVec4(ImGuiCol.ButtonHovered, kv4(S.TextPrimaryU32));
+          ImGui.PushStyleColorImVec4(ImGuiCol.Text, kv4(S.PanelU32)); pushed = 3;
+        } else if (tint[v]) {
+          const c = tint[v]!;
+          ImGui.PushStyleColorImVec4(ImGuiCol.Button, new ImVec4(c[0], c[1], c[2], 0.18)); ImGui.PushStyleColorImVec4(ImGuiCol.ButtonHovered, new ImVec4(c[0], c[1], c[2], 0.32));
+          ImGui.PushStyleColorImVec4(ImGuiCol.Border, kv4(c)); ImGui.PushStyleColorImVec4(ImGuiCol.Text, kv4(c)); pushed = 4;
+        }
+        ImGui.Button(p.label || ' ', new ImVec2(0, px(W.ButtonHeight, 28)));
+        if (pushed) ImGui.PopStyleColor(pushed);
+        this.item();
+        if (p.tooltip) ImGui.SetItemTooltip(p.tooltip);
+        return true;
+      }
+      case 'separator': rule(); this.item(); return true;
+      case 'readout': {
+        const x0 = ImGui.GetCursorPosX();
+        ImGui.BeginGroup();
+        ImGui.TextColored(kv4(S.TextMutedU32), String(p.key ?? ''));
+        ImGui.SameLine(x0 + labelColumn());
+        ImGui.TextColored(kv4(S.TextPrimaryU32), String(p.value ?? ''));
+        ImGui.EndGroup();
+        this.item();
+        return true;
+      }
+      case 'region_header':
+        ImGui.BeginGroup();
+        ImGui.TextColored(kv4(S.TextLabelU32), String(p.label ?? ''));
+        rule();
+        ImGui.EndGroup();
+        this.item();
+        return true;
+      case 'segmented': {
+        const cur = this.ref(n, () => Math.trunc(p.value) || 0);
+        ImGui.BeginGroup();
+        list(p.items).forEach((it, k) => {
+          if (k) ImGui.SameLine(0, 0);
+          ImGui.PushStyleColorImVec4(ImGuiCol.Button, kv4(k === cur[0] ? S.FrameU32 : S.InsetU32));
+          if (ImGui.Button(it, new ImVec2(0, px(W.ButtonHeight, 28))) && !this.get().design) cur[0] = k;
+          ImGui.PopStyleColor(1);
+        });
+        ImGui.EndGroup();
+        this.item();
+        if (p.tooltip) ImGui.SetItemTooltip(p.tooltip);
+        return true;
+      }
+    }
+    return false;
+  }
+
   private node(n: Node) {
+    if (this.ksa && this.ksaNode(n)) return;
+    this.plain(n);
+  }
+
+  private plain(n: Node) {
     const p = n.p, L = p.label || ' ';
     const tip = () => p.tooltip && ImGui.SetItemTooltip(p.tooltip);
     switch (n.kind) {
+      case 'readout': ImGui.Text(`${p.key ?? ''}  ${p.value ?? ''}`); break;
+      case 'region_header': ImGui.SeparatorText(String(p.label ?? '')); break;
+      case 'segmented': {
+        const cur = this.ref(n, () => Math.trunc(p.value) || 0);
+        ImGui.BeginGroup();
+        list(p.items).forEach((it, k) => {
+          if (k) ImGui.SameLine();
+          if (ImGui.RadioButton(it, cur[0] === k)) cur[0] = k;
+        });
+        ImGui.EndGroup();
+        break;
+      }
       case 'text': ImGui.Text(String(p.text ?? '')); break;
       case 'text_colored': { const c = p.color ?? [1, 1, 1, 1]; ImGui.TextColored(new ImVec4(c[0], c[1], c[2], c[3]), String(p.text ?? '')); break; }
       case 'text_wrapped': ImGui.TextWrapped(String(p.text ?? '')); break;

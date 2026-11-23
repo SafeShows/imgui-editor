@@ -54,6 +54,8 @@ interface Lang {
   cursor(x: number, y: number): string;
   sameLine: string;
   width(w: number): string;
+  /** Widgets that size themselves (KSA rows), so no SetNextItemWidth. */
+  ownWidth?(n: Node): boolean;
   tooltip(t: string): string;
   leaf(n: Node, v: Var | undefined): string[];
   box(n: Node, v: Var | undefined): Box;
@@ -119,6 +121,9 @@ function cFamily(c: boolean): Lang {
             '}',
           ];
         }
+        case 'readout': return [`${ns('Text')}("%s  %s", ${q(p.key)}, ${q(p.value)});`];
+        case 'region_header': return [`${ns('SeparatorText')}(${q(p.label)});`];
+        case 'segmented': return list(p.items).flatMap((it, k, all) => [`if (${ns('RadioButton', 'RadioButton_Bool')}(${q(it)}, ${r} == ${k})) ${r} = ${k};`, ...(k < all.length - 1 ? [c ? 'igSameLine(0.0f, -1.0f);' : 'ImGui::SameLine();'] : [])]);
       }
       return [`/* ${n.kind} */`];
     },
@@ -202,6 +207,9 @@ const csharp: Lang = {
       case 'progress': return [`ImGui.ProgressBar(${f(p.fraction)}${p.overlay ? `, overlay: ${q(p.overlay)}` : ''});`];
       case 'plot_lines': return [`ImGui.PlotLines(${L}, [${numbers(p.values).map(f).join(', ')}], graphSize: new float2(${f(n.w)}, ${f(n.h)}));`];
       case 'plot_histogram': return [`ImGui.PlotHistogram(${L}, [${numbers(p.values).map(f).join(', ')}], graphSize: new float2(${f(n.w)}, ${f(n.h)}));`];
+      case 'readout': return [`ImGui.Text(${q(`${p.key}  ${p.value}`)});`];
+      case 'region_header': return [`ImGui.Text(${q(p.label)});`, 'ImGui.Separator();'];
+      case 'segmented': return list(p.items).flatMap((it, k, all) => [`if (ImGui.RadioButton(${q(it)}, ${r} == ${k})) ${r} = ${k};`, ...(k < all.length - 1 ? ['ImGui.SameLine();'] : [])]);
     }
     return [`// ${n.kind}`];
   },
@@ -283,6 +291,9 @@ function oxidizer(rhai: boolean): Lang {
         case 'progress': return [`${im('progress_bar')}(${fl(p.fraction)}, ${q(p.overlay)});`];
         case 'plot_lines':
         case 'plot_histogram': return [`${im(n.kind)}(${L}, ${rhai ? '' : '&'}[${numbers(p.values).map(fl).join(', ')}], ${fl(n.h)});`];
+        case 'readout': return [`${im('text')}(${q(`${p.key}  ${p.value}`)});`];
+        case 'region_header': return [`${im('text')}(${q(p.label)});`, `${im('separator')}();`];
+        case 'segmented': return list(p.items).flatMap((it, k, all) => [`if ${im('radio_button')}(${q(it)}, ${r} == ${k}) { ${r} = ${k}; }`, ...(k < all.length - 1 ? [`${im('same_line')}();`] : [])]);
       }
       return [`// ${n.kind}`];
     },
@@ -334,6 +345,128 @@ function oxidizer(rhai: boolean): Lang {
   };
 }
 
+// ---- KSA look: the game's UI kit (KSA.ConsoleStyle / KSA.ConsoleWidgets; oxidizer_api::ksa_ui; Rhai ksa_*) ----
+
+type KsaTarget = 'csharp' | 'rust' | 'rhai';
+const ROW_KINDS = new Set(['checkbox', 'slider_float', 'slider_int', 'drag_float', 'drag_int', 'combo', 'input_text', 'color_edit']);
+const VARIANTS: Record<string, [string, string]> = { normal: ['Button', 'button'], primary: ['PrimaryButton', 'primary_button'], positive: ['PositiveButton', 'positive_button'], danger: ['DangerButton', 'danger_button'] };
+
+/** `base` with the widgets KSA's kit has drawn by the kit (the rest stays plain ImGui, in KSA's widget style). */
+function ksaLang(base: Lang, t: KsaTarget, mod: string): Lang {
+  const cs = t === 'csharp', rs = t === 'rust', rhai = t === 'rhai';
+  const w = (csName: string, rsName: string, args = '') => (cs ? `ConsoleWidgets.${csName}(${args})` : rs ? `ksa_ui::${rsName}(${args})` : `ksa_${rsName}(${args})`);
+  const st = (csName: string, rsName: string, args = '') => (cs ? `ConsoleStyle.${csName}(${args})` : rs ? `ksa_ui::${rsName}(${args})` : `ksa_${rsName}(${args})`);
+  const f = (n: number) => (cs ? `${fl(n)}f` : fl(n));
+  const strs = (xs: string[]) => (rs ? `&[${xs.map(q).join(', ')}]` : `[${xs.map(q).join(', ')}]`);
+  const unbounded = (n: Node) => Number(n.p.min) === Number(n.p.max);
+  const fmin = (n: Node) => (unbounded(n) ? (cs ? 'float.MinValue' : rs ? 'f32::MIN' : '-3.4e38') : f(n.p.min));
+  const fmax = (n: Node) => (unbounded(n) ? (cs ? 'float.MaxValue' : rs ? 'f32::MAX' : '3.4e38') : f(n.p.max));
+  const imin = (n: Node) => (unbounded(n) ? (cs ? 'int.MinValue' : rs ? 'i32::MIN' : '-2147483648') : int(n.p.min));
+  const imax = (n: Node) => (unbounded(n) ? (cs ? 'int.MaxValue' : rs ? 'i32::MAX' : '2147483647') : int(n.p.max));
+  const label = (n: Node) => String(n.p.label ?? '').split('##')[0];
+  const rhaiText = (r: string, round: boolean) => '`${' + (round ? `(${r} * 100.0).round() / 100.0` : r) + '}`';
+
+  /** The control of a labelled row; `r` is its variable, `id` its widget id. */
+  const control = (n: Node, r: string, id: string): string[] => {
+    const p = n.p;
+    switch (n.kind) {
+      case 'checkbox': return [cs ? `ConsoleWidgets.Checkbox(${id}, ref ${r}, false);` : rs ? `ksa_ui::checkbox(${id}, &mut ${r});` : `${r} = ksa_checkbox(${id}, ${r});`];
+      case 'slider_float':
+      case 'drag_float': {
+        const [c, k] = n.kind === 'slider_float' ? ['SliderFloat', 'slider_float'] : ['DragFloat', 'drag_float'];
+        const lo = n.kind === 'slider_float' ? f(p.min) : fmin(n), hi = n.kind === 'slider_float' ? f(p.max) : fmax(n);
+        if (cs) return [`ConsoleWidgets.${c}(${id}, ref ${r}, ${lo}, ${hi}, ${r}.ToString("F2", CultureInfo.InvariantCulture), false);`];
+        if (rs) return [`let text = format!("{:.2}", ${r});`, `ksa_ui::${k}(${id}, &mut ${r}, ${lo}, ${hi}, &text);`];
+        return [`${r} = ksa_${k}(${id}, ${r}, ${lo}, ${hi}, ${rhaiText(r, true)});`];
+      }
+      case 'slider_int':
+      case 'drag_int': {
+        const [c, k] = n.kind === 'slider_int' ? ['SliderInt', 'slider_int'] : ['DragInt', 'drag_int'];
+        const lo = n.kind === 'slider_int' ? int(p.min) : imin(n), hi = n.kind === 'slider_int' ? int(p.max) : imax(n);
+        if (cs) return [`ConsoleWidgets.${c}(${id}, ref ${r}, ${lo}, ${hi}, ${r}.ToString(CultureInfo.InvariantCulture), false);`];
+        if (rs) return [`let text = ${r}.to_string();`, `ksa_ui::${k}(${id}, &mut ${r}, ${lo}, ${hi}, &text);`];
+        return [`${r} = ksa_${k}(${id}, ${r}, ${lo}, ${hi}, ${rhaiText(r, false)});`];
+      }
+      case 'combo': {
+        const items = list(p.items);
+        if (rs) return [`ksa_ui::combo(${id}, &mut ${r}, ${strs(items)});`];
+        if (rhai) return [`${r} = ksa_combo(${id}, ${r}, ${strs(items)});`];
+        return [
+          `string[] items = ${strs(items)};`,
+          `if (ConsoleWidgets.BeginComboControl(${id}, items[${r}], false))`,
+          '{',
+          '    for (int i = 0; i < items.Length; i++)',
+          `        if (ImGui.Selectable(items[i], ${r} == i)) ${r} = i;`,
+          '    ConsoleWidgets.EndComboControl();',
+          '}',
+        ];
+      }
+      case 'input_text': return [cs ? `ConsoleWidgets.TextLine(${id}, ref ${r}, false, out _);` : rs ? `ksa_ui::text_line(${id}, &mut ${r});` : `${r} = ksa_text_line(${id}, ${r});`];
+      case 'color_edit': return [cs ? `ConsoleWidgets.ColorEdit3(${id}, ref ${r}, false);` : rs ? `ksa_ui::color_edit(${id}, &mut ${r});` : `${r} = ksa_color_edit(${id}, ${r});`];
+    }
+    return [];
+  };
+
+  return {
+    ...base,
+    ownWidth: n => ROW_KINDS.has(n.kind),
+    tooltip: text => `${w('ItemTooltip', 'item_tooltip', q(text))};`,
+    leaf(n, v) {
+      const p = n.p, r = v ? this.ref(v) : '';
+      if (ROW_KINDS.has(n.kind) && v) {
+        const lines = [`${w('BeginRow', 'begin_row', q(label(n)))};`, ...control(n, r, q(v.name)), `${w('EndRow', 'end_row')};`];
+        // C#'s combo declares `items` and Rust's sliders `text`: each in its own block.
+        const scoped = (cs && n.kind === 'combo') || (rs && /^(slider|drag)/.test(n.kind));
+        return scoped ? ['{', ...lines.map(l => `    ${l}`), '}'] : lines;
+      }
+      switch (n.kind) {
+        case 'button': {
+          const [c, k] = VARIANTS[p.variant] ?? VARIANTS.normal;
+          return [`${base.if(w(c, k, q(p.label)))} { /* clicked */ }`];
+        }
+        case 'separator': return [`${w('Rule', 'rule')};`];
+        case 'readout': return [`${w('Readout', 'readout', `${q(p.key)}, ${q(p.value)}`)};`];
+        case 'region_header': return [`${w('RegionHeader', 'region_header', q(p.label))};`];
+        case 'segmented': return [`${r} = ${w('Segmented', 'segmented', `${q(v!.name)}, ${strs(list(p.items))}, ${r}`)};`];
+      }
+      return base.leaf.call(this, n, v);
+    },
+    box(n, v) {
+      if (n.kind !== 'window') return base.box.call(this, n, v);
+      const p = n.p, r = this.ref(v!);
+      const flags = winFlags(n);
+      const flagExpr = cs
+        ? flags.map(x => `ImGuiWindowFlags.${x[1]}`).join(' | ')
+        : rs
+          ? flags.map(x => `imgui::window_flags::${x[0] === 'no_title' ? 'NO_TITLE_BAR' : x[0].toUpperCase()}`).join(' | ') || '0'
+          : String(flags.reduce((a, x) => a + x[2], 0));
+      const id = q(`${mod}_${v!.name}`), title = q(String(p.title ?? '')), sig = q(String(p.signature ?? ''));
+      let cond: string;
+      if (cs) cond = `ConsoleStyle.BeginWindow(${id}, ${title}, ${sig}${p.closable ? `, ref ${r}` : ''}, new float2(${f(n.w)}, ${f(n.h)})${flagExpr ? `, ${flagExpr}` : ''})`;
+      else if (rs) cond = `ksa_ui::begin_window(${id}, ${title}, ${sig}, ${p.closable ? `Some(&mut ${r})` : 'None'}, ${fl(n.w)}, ${fl(n.h)}, ${flagExpr})`;
+      else cond = `ksa_begin_window(${id}, ${title}, ${sig}, ${fl(n.w)}, ${fl(n.h)}, ${flagExpr})`;
+      return {
+        guard: r,
+        pre: [
+          ...(rhai && p.closable ? ['// Rhai windows have no close button: menu() toggles this one.'] : []),
+          cs ? `ImGui.SetNextWindowPos(new float2(${f(n.x)}, ${f(n.y)}), ImGuiCond.FirstUseEver);` : `${rs ? 'imgui::' : ''}set_next_window_pos(${fl(n.x)}, ${fl(n.y)});`,
+        ],
+        // When BeginWindow returns false the window is already ended: everything else is inside the if.
+        cond,
+        head: [`${st('BeginBody', 'begin_body')};`, `${st('PushWidgetStyle', 'push_widget_style')};`],
+        tail: [
+          `${st('PopWidgetStyle', 'pop_widget_style')};`,
+          `${st('EndBody', 'end_body')};`,
+          `${st('BeginFooter', 'begin_footer')};`,
+          ...(p.footer ? [cs ? `ConsoleStyle.FooterStatus(${q(p.footer)}, false);` : `${st('FooterStatus', 'footer_status', q(p.footer))};`] : []),
+          `${st('EndFooter', 'end_footer')};`,
+          `${st('EndWindow', 'end_window')};`,
+        ],
+      };
+    },
+  };
+}
+
 // ---- the walk ----
 
 class Out {
@@ -367,7 +500,7 @@ function emit(nodes: Node[], parent: Node | undefined, L: Lang, vars: Map<string
     if (isAbsolute(parent)) out.line(L.cursor(n.x, n.y));
     else if (n.p.same_line && i > 0) out.line(L.sameLine);
     const d = KINDS[n.kind];
-    if (d.width && n.w > 0) out.line(L.width(n.w));
+    if (d.width && n.w > 0 && !L.ownWidth?.(n)) out.line(L.width(n.w));
     if (d.container) container(n, L, vars, out);
     else {
       for (const l of L.leaf(n, vars.get(n.id))) out.line(l);
@@ -400,7 +533,7 @@ function body(p: Project, L: Lang, vars: Map<string, Var>, depth: number): strin
 
 /** Features that need the widgets added in oxidizer_api 0.9 (not in 0.8.1). */
 function needsOxidizer09(p: Project): boolean {
-  const fresh = new Set(['tree', 'table', 'popup', 'radio', 'selectable', 'list_box', 'slider_int', 'drag_float', 'drag_int', 'text_wrapped', 'spacing', 'plot_lines', 'plot_histogram', 'child']);
+  const fresh = new Set(['readout', 'region_header', 'segmented', 'tree', 'table', 'popup', 'radio', 'selectable', 'list_box', 'slider_int', 'drag_float', 'drag_int', 'text_wrapped', 'spacing', 'plot_lines', 'plot_histogram', 'child']);
   let yes = false;
   const go = (ns: Node[]) => ns.forEach(n => {
     if (fresh.has(n.kind) || n.p.tooltip || (n.kind === 'window' && winFlags(n).length) || (n.kind === 'window' && n.p.closable)) yes = true;
@@ -417,6 +550,7 @@ export interface Options { name: string }
 export function generate(p: Project, target: Target, o: Options): string {
   const { byNode, all } = assignVars(p);
   const name = ident(o.name, 'my_mod');
+  const ksa = !!p.ksa && (target === 'csharp' || target === 'rust' || target === 'rhai');
   const windows = p.windows.map(w => ({ title: String(w.p.title ?? 'Window').split('##')[0], v: byNode.get(w.id)! }));
   switch (target) {
     case 'cpp':
@@ -429,7 +563,8 @@ export function generate(p: Project, target: Target, o: Options): string {
           case 'int': return `static int ${v.name} = ${int(v.init)};`;
           case 'float': return `static float ${v.name} = ${fl(v.init)}f;`;
           case 'double': return `static double ${v.name} = ${fl(v.init)};`;
-          case 'string': return `static char ${v.name}[1024] = ${q(v.init)};`;
+          case 'string':
+          case 'text': return `static char ${v.name}[1024] = ${q(v.init)};`;
           case 'color': return `static float ${v.name}[4] = { ${color(v.init).map(x => `${fl(x)}f`).join(', ')} };`;
         }
       };
@@ -466,15 +601,18 @@ export function generate(p: Project, target: Target, o: Options): string {
           case 'int': return `int ${f} = ${int(v.init)};`;
           case 'float': return `float ${f} = ${fl(v.init)}f;`;
           case 'double': return `double ${f} = ${fl(v.init)};`;
-          case 'string': return `readonly ImInputString ${f} = new(1024, ${q(v.init)}u8);`;
-          case 'color': return `float4 ${f} = new(${color(v.init).map(x => `${fl(x)}f`).join(', ')});`;
+          case 'string': return ksa ? `string ${f} = ${q(v.init)};` : `readonly ImInputString ${f} = new(1024, ${q(v.init)}u8);`;
+          case 'text': return `readonly ImInputString ${f} = new(1024, ${q(v.init)}u8);`;
+          case 'color': return ksa ? `float3 ${f} = new(${color(v.init).slice(0, 3).map(x => `${fl(x)}f`).join(', ')});` : `float4 ${f} = new(${color(v.init).map(x => `${fl(x)}f`).join(', ')});`;
         }
       };
       // Window flags are static (the menu patch toggles them): Show… rather than _show….
       const winRef = (v: Var) => pascal(v.name);
-      const lang: Lang = { ...L, ref: v => (windows.some(w => w.v === v) ? winRef(v) : L.ref(v)) };
+      const plain: Lang = { ...L, ref: v => (windows.some(w => w.v === v) ? winRef(v) : L.ref(v)) };
+      const lang = ksa ? ksaLang(plain, 'csharp', name) : plain;
       return [
         `// ${name}: generated by ImGui Editor. A StarMap mod (net10.0, StarMap.API, Lib.Harmony; reference KSA.dll and Brutal.*.dll).`,
+        ...(ksa ? ['using System.Globalization;'] : []),
         'using Brutal.ImGuiApi;',
         'using Brutal.Numerics;',
         'using HarmonyLib;',
@@ -513,22 +651,23 @@ export function generate(p: Project, target: Target, o: Options): string {
       ].join('\n');
     }
     case 'rust': {
-      const L = oxidizer(false);
-      const ty = (v: Var) => ({ bool: 'bool', int: 'i32', float: 'f32', double: 'f64', string: 'imgui::TextBuffer', color: '[f32; 4]' })[v.state];
+      const L = ksa ? ksaLang(oxidizer(false), 'rust', name) : oxidizer(false);
+      const ty = (v: Var) => ({ bool: 'bool', int: 'i32', float: 'f32', double: 'f64', string: ksa ? 'String' : 'imgui::TextBuffer', text: 'imgui::TextBuffer', color: ksa ? '[f32; 3]' : '[f32; 4]' })[v.state];
       const val = (v: Var) => {
         switch (v.state) {
           case 'bool': return v.init ? 'true' : 'false';
           case 'int': return int(v.init);
           case 'float':
           case 'double': return fl(v.init);
-          case 'string': return `imgui::TextBuffer::new(${q(v.init)})`;
-          case 'color': return `[${color(v.init).map(fl).join(', ')}]`;
+          case 'string': return ksa ? `String::from(${q(v.init)})` : `imgui::TextBuffer::new(${q(v.init)})`;
+          case 'text': return `imgui::TextBuffer::new(${q(v.init)})`;
+          case 'color': return `[${color(v.init).slice(0, ksa ? 3 : 4).map(fl).join(', ')}]`;
         }
       };
       return [
-        `//! ${name}: generated by ImGui Editor. Needs oxidizer_api ${needsOxidizer09(p) ? '0.9' : '0.8.1'} or later.`,
+        `//! ${name}: generated by ImGui Editor. Needs oxidizer_api ${ksa ? '0.9 (API version 8: the KSA UI kit)' : needsOxidizer09(p) ? '0.9' : '0.8.1'} or later.`,
         '//! Keep a `Ui` in your Mod struct, call `self.ui.draw()` in `Mod::gui` and `self.ui.menu()` in `Mod::menu`.',
-        'use oxidizer_api::imgui;',
+        ksa ? 'use oxidizer_api::{imgui, ksa_ui};' : 'use oxidizer_api::imgui;',
         '',
         'pub struct Ui {',
         ...all.map(v => `    pub ${v.name}: ${ty(v)},`),
@@ -556,19 +695,20 @@ export function generate(p: Project, target: Target, o: Options): string {
       ].join('\n');
     }
     case 'rhai': {
-      const L = oxidizer(true);
+      const L = ksa ? ksaLang(oxidizer(true), 'rhai', name) : oxidizer(true);
       const val = (v: Var) => {
         switch (v.state) {
           case 'bool': return v.init ? 'true' : 'false';
           case 'int': return int(v.init);
           case 'float':
           case 'double': return fl(v.init);
-          case 'string': return q(v.init);
-          case 'color': return `[${color(v.init).map(fl).join(', ')}]`;
+          case 'string':
+          case 'text': return q(v.init);
+          case 'color': return `[${color(v.init).slice(0, ksa ? 3 : 4).map(fl).join(', ')}]`;
         }
       };
       return [
-        `// ${name}: generated by ImGui Editor. Needs Oxidizer ${needsOxidizer09(p) ? 'with the 0.9 widgets (after 0.14.0)' : '0.14.0'} or later.`,
+        `// ${name}: generated by ImGui Editor. Needs Oxidizer ${ksa ? 'with the KSA UI kit (API version 8, after 0.14.0)' : needsOxidizer09(p) ? 'with the 0.9 widgets (after 0.14.0)' : '0.14.0'} or later.`,
         '// Merge these into your main.rhai: init() sets up the state, gui() draws, menu() adds Mods menu entries.',
         'fn init() {',
         ...all.map(v => `    this.${v.name} = ${val(v)};`),

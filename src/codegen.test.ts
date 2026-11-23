@@ -50,6 +50,18 @@ for (const t of TARGETS) {
   }
 }
 
+// KSA look: the KSA targets draw with the game's kit; C/C++ ignore it.
+const k = { ...sample(), ksa: true };
+for (const t of TARGETS) {
+  const code = generate(k, t.id, { name: 'flight_ui' });
+  assert.ok(balanced(code), `${t.id} (KSA look): braces balance`);
+  if (t.id === 'csharp') assert.ok(code.includes('ConsoleStyle.BeginWindow(') && code.includes('ConsoleWidgets.PositiveButton("Stage")') && !code.includes('ImGui.End();'));
+  if (t.id === 'rust') assert.ok(code.includes('ksa_ui::begin_window(') && code.includes('ksa_ui::begin_row("Warp guard");'));
+  if (t.id === 'rhai') assert.ok(code.includes('ksa_begin_window(') && code.includes('this.warp_guard = ksa_checkbox("warp_guard", this.warp_guard);'));
+  if (t.id === 'cpp' || t.id === 'c') assert.equal(code, generate(sample(), t.id, { name: 'flight_ui' }));
+  if (process.env.OUT) writeFileSync(join(process.env.OUT, `flight_ui_ksa.${t.ext}`), code);
+}
+
 // An empty window still produces valid code.
 for (const t of TARGETS) assert.ok(balanced(generate({ windows: [make('window')] }, t.id, { name: 'x' })));
 
