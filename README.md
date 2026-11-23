@@ -27,6 +27,21 @@ keeps a value gets a variable (named from its label; override it in Properties).
 - **Test** mode: the widgets work as they would in the game.
 - Designs autosave in the browser; **Save…** / **Open…** read and write `.imgui.json` files.
 
+## Preview looks
+
+With a KSA target (C#, Rust, Rhai) the preview uses the game's look: its JetBrains Mono font and the ImGui style in
+[src/ksa-style.json](src/ksa-style.json). With C or C++ it is stock Dear ImGui (ProggyClean, the default dark style),
+and the generated C/C++ sets no style, so it looks the same in your app.
+
+`ksa-style.json` is captured from the game itself by [tools/ImGuiStyleDump](tools/ImGuiStyleDump), a StarMap mod that
+writes every ImGui style value, color and the font size to `Documents/My Games/Kitten Space Agency/imgui_style.json`
+on the first frame:
+
+1. `dotnet build -c Release` in `tools/ImGuiStyleDump`.
+2. Copy `bin/Release/net10.0/ImGuiStyleDump.dll` and `mod.toml` to `mods/ImGuiStyleDump/`, add
+   `[[mods]] id = "ImGuiStyleDump" enabled = true` to `manifest.toml`, and start the game through StarMap.
+3. Replace `src/ksa-style.json` with the `imgui_style.json` it wrote, then disable the mod again.
+
 ## Oxidizer versions
 
 Tree nodes, tables, popups, tooltips, plots, radio buttons, selectables, list boxes, int sliders, drags, wrapped text,

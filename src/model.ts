@@ -93,7 +93,7 @@ export const KINDS: Record<Kind, KindDef> = {
   },
   popup: {
     label: 'Popup button', group: 'Containers', container: true,
-    defaults: { label: 'Open…', id: 'popup' }, props: [{ key: 'label', label: 'Button label', type: 'string' }, { key: 'id', label: 'Popup id', type: 'string' }, tip],
+    defaults: { label: 'Open...', id: 'popup' }, props: [{ key: 'label', label: 'Button label', type: 'string' }, { key: 'id', label: 'Popup id', type: 'string' }, tip],
   },
 
   text: { label: 'Text', group: 'Text', defaults: { text: 'Hello, kittens!' }, props: [{ key: 'text', label: 'Text', type: 'text' }, tip] },

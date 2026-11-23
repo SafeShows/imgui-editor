@@ -1,0 +1,4 @@
+name = "ImGuiStyleDump"
+
+[StarMap]
+EntryAssembly = "ImGuiStyleDump"

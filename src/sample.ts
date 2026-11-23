@@ -20,7 +20,7 @@ export function sample(): Project {
     at('radio', 100, 132, { label: 'Orbit', group: 'frame', option: 1 }),
     at('progress', 8, 158, { fraction: 0.62, overlay: 'Fuel 62%' }),
     at('button', 8, 186, { label: 'Stage' }),
-    at('popup', 70, 186, { label: 'More…', id: 'more' }, [flow('selectable', { label: 'Show orbit' }), flow('selectable', { label: 'Show vehicle', value: true })]),
+    at('popup', 70, 186, { label: 'More...', id: 'more' }, [flow('selectable', { label: 'Show orbit' }), flow('selectable', { label: 'Show vehicle', value: true })]),
   ], [340, 250]);
 
   const tools = at('window', 400, 40, { title: 'Tools', no_collapse: true }, [

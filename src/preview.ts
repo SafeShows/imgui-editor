@@ -1,6 +1,7 @@
 // Draws the design with real Dear ImGui (jsimgui: ImGui compiled to WebAssembly) and records where every node
 // landed on screen, so the editor's overlay can select and drag them.
 import { ImGui, ImGuiImplWeb, ImVec2, ImVec4 } from '@mori2003/jsimgui';
+import { FONT_SIZE, setTheme, type Theme } from './theme.ts';
 import { KINDS, isAbsolute, list, numbers, type Node, type Project } from './model.ts';
 
 export interface Rect { x0: number; y0: number; x1: number; y1: number }
@@ -18,6 +19,14 @@ export class Preview {
   /** Live widget values in test mode, keyed by node id (jsimgui wants one-element arrays). */
   private state = new Map<string, any[]>();
   private stack: Rect[][] = [];
+  private fonts: Partial<Record<Theme, any>> = {};
+  private theme: Theme = 'ksa';
+  private wantTheme: Theme | undefined = 'ksa';
+
+  /** Switches the preview's look (applied before the next frame). */
+  setTheme(t: Theme) {
+    this.wantTheme = t;
+  }
 
   private canvas: HTMLCanvasElement;
   private get: () => { project: Project; design: boolean };
@@ -28,9 +37,12 @@ export class Preview {
 
   async start(font?: Uint8Array) {
     await ImGuiImplWeb.Init({ canvas: this.canvas, backend: 'webgl2' });
+    const io = ImGui.GetIO();
+    // Stock Dear ImGui's font (ProggyClean), for the C/C++ look; the first font added is the default.
+    this.fonts.default = io.Fonts.AddFontDefaultBitmap();
     if (font) {
       ImGuiImplWeb.LoadFont('JetBrainsMono-Regular.ttf', font);
-      ImGui.GetIO().Fonts.AddFontFromFileTTF('JetBrainsMono-Regular.ttf', 15);
+      this.fonts.ksa = io.Fonts.AddFontFromFileTTF('JetBrainsMono-Regular.ttf', FONT_SIZE.ksa);
     }
     ImGui.StyleColorsDark();
     const frame = () => {
@@ -38,12 +50,20 @@ export class Preview {
       const dpr = window.devicePixelRatio || 1;
       c.width = Math.max(1, c.clientWidth * dpr);
       c.height = Math.max(1, c.clientHeight * dpr);
+      if (this.wantTheme) {
+        setTheme(this.wantTheme);
+        this.theme = this.wantTheme;
+        this.wantTheme = undefined;
+      }
       ImGuiImplWeb.BeginRender();
+      const f = this.fonts[this.theme] ?? this.fonts.default;
+      if (f) ImGui.PushFontFloat(f, FONT_SIZE[this.theme]);
       try {
         this.draw();
       } catch (e) {
         console.error(e);
       }
+      if (f) ImGui.PopFont();
       ImGuiImplWeb.EndRender();
       requestAnimationFrame(frame);
     };

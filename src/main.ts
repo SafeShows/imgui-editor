@@ -1,6 +1,7 @@
 import { TARGETS, generate, type Target } from './codegen.ts';
 import { KINDS, assignVars, canHold, find, isAbsolute, make, newId, walk, type Kind, type Node, type Project, type PropDef } from './model.ts';
 import { Preview, hit } from './preview.ts';
+import { KSA_CAPTURED } from './theme.ts';
 import { sample } from './sample.ts';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -428,7 +429,9 @@ function renderCode() {
   targetSel.value = doc.target;
   modName.value = doc.name;
   code.textContent = generate(doc.project, doc.target, { name: doc.name });
-  $('code-note').textContent = NOTES[doc.target];
+  const game = doc.target !== 'c' && doc.target !== 'cpp';
+  preview.setTheme(game ? 'ksa' : 'default');
+  $('code-note').textContent = `${NOTES[doc.target]} Preview: ${game ? (KSA_CAPTURED ? 'KSA style' : 'KSA font (game colors not captured yet)') : 'default Dear ImGui style'}.`;
 }
 targetSel.addEventListener('change', () => { doc.target = targetSel.value as Target; save(); renderCode(); });
 modName.addEventListener('input', () => { doc.name = modName.value; save(); code.textContent = generate(doc.project, doc.target, { name: doc.name }); });

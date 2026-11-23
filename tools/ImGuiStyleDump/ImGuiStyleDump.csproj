@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A StarMap mod that writes KSA's ImGui style to imgui_style.json once. Build: dotnet build -c Release -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>ImGuiStyleDump</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <Game Condition="'$(Game)' == ''">C:\Program Files\Ahwoo\Games\Kitten Space Agency</Game>
+    <StarMapDir Condition="'$(StarMapDir)' == ''">$(UserProfile)\Documents\My Games\Kitten Space Agency\mods\StarMap</StarMapDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="$(Game)\Brutal.ImGui.dll" Private="false" />
+    <Reference Include="$(Game)\Brutal.Numerics.dll" Private="false" />
+    <Reference Include="$(Game)\Brutal.Core.dll" Private="false" />
+    <Reference Include="$(Game)\Brutal.Strings.dll" Private="false" />
+    <Reference Include="$(Game)\KSA.dll" Private="false" />
+    <Reference Include="$(StarMapDir)\StarMap.API.dll" Private="false" />
+  </ItemGroup>
+</Project>
