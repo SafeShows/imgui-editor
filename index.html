@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ImGui Editor</title>
+    <meta name="description" content="Design Dear ImGui windows and generate C#, Rust and Rhai code for Kitten Space Agency mods, or C/C++." />
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <strong class="brand">ImGui Editor</strong>
+      <div class="seg" role="group" aria-label="Mode">
+        <button id="mode-design" class="on" title="Select, drag and resize (D)">Design</button>
+        <button id="mode-test" title="Use the widgets like in the game (T)">Test</button>
+      </div>
+      <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
+      <button id="redo" title="Redo (Ctrl+Y)">Redo</button>
+      <span class="grow"></span>
+      <label>Snap <input id="snap" type="number" min="1" max="32" value="4" /></label>
+      <button id="new">New</button>
+      <button id="import">Open…</button>
+      <button id="export">Save…</button>
+      <input id="file" type="file" accept=".json,application/json" hidden />
+    </header>
+
+    <main class="layout">
+      <aside class="side left">
+        <section>
+          <h2>Widgets</h2>
+          <p class="hint">Drag onto the canvas, or click to add to the selection.</p>
+          <div id="palette"></div>
+        </section>
+        <section class="fill">
+          <h2>Hierarchy</h2>
+          <div id="tree" class="tree" role="tree"></div>
+        </section>
+      </aside>
+
+      <section class="stage" id="stage">
+        <canvas id="canvas"></canvas>
+        <div id="overlay" class="overlay"></div>
+        <div id="status" class="status">Loading Dear ImGui…</div>
+      </section>
+
+      <aside class="side right">
+        <section>
+          <h2>Properties</h2>
+          <div id="props"><p class="hint">Select a widget.</p></div>
+        </section>
+        <section class="fill code">
+          <div class="code-head">
+            <h2>Code</h2>
+            <select id="target" aria-label="Target language"></select>
+          </div>
+          <label class="row">Mod name <input id="modname" value="my_mod" spellcheck="false" /></label>
+          <div class="code-actions">
+            <button id="copy">Copy</button>
+            <button id="download">Download</button>
+            <span id="code-note" class="hint"></span>
+          </div>
+          <pre id="code"><code></code></pre>
+        </section>
+      </aside>
+    </main>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

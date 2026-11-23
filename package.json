@@ -1,0 +1,19 @@
+{
+  "name": "imgui-editor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "tsc && node --experimental-strip-types src/codegen.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.6"
+  },
+  "dependencies": {
+    "@mori2003/jsimgui": "^0.14.0"
+  }
+}
